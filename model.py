@@ -22,10 +22,8 @@ class LaplacianPyramid(nn.Module):
         self.layer4 = nn.Parameter(torch.FloatTensor(1, 1, W // 8, H // 8))
 
     def forward(self, uv):
-        B, H, W, _ = uv.shape # (B, H, W, 2)
-
-        # Grid sample expects (0, 1), not (-1, 1)
-        uv = uv * 2.0 - 1.0
+        # Expects uv in [0, 1]
+        B, _, H, W = uv.shape # (B, 2, H, W)
 
         # Repeat to do batches in parallel
         y1 = F.grid_sample(self.layer1.repeat(B, 1, 1, 1), uv)
@@ -39,13 +37,17 @@ class LaplacianPyramid(nn.Module):
 
 class Texture(nn.Module):
 
-    def __init__(self, W, H, num_features):
+    def __init__(self, W, H, num_features, num_parts=24):
         super(Texture, self).__init__()
         self.num_features = num_features
+        self.num_parts = num_parts
 
-        # One pyramid per feature
         self.textures = nn.ModuleList([
-            LaplacianPyramid(W, H) for _ in range(num_features)
+            nn.ModuleList([
+                LaplacianPyramid(W, H) 
+                for _ in range(num_features)
+            ])
+            for _ in range(num_parts)
         ])
 
         # Group layers together to apply same regularization
@@ -54,14 +56,20 @@ class Texture(nn.Module):
         self.layer3 = nn.ParameterList()
         self.layer4 = nn.ParameterList()
 
-        for i in range(num_features):
-            self.layer1.append(self.textures[i].layer1)
-            self.layer2.append(self.textures[i].layer2)
-            self.layer3.append(self.textures[i].layer3)
-            self.layer4.append(self.textures[i].layer4)
+        for i in range(num_parts):
+            for j in range(num_features):
+                self.layer1.append(self.textures[i][j].layer1)
+                self.layer2.append(self.textures[i][j].layer2)
+                self.layer3.append(self.textures[i][j].layer3)
+                self.layer4.append(self.textures[i][j].layer4)
 
-    def forward(self, uv):
-        features = [self.textures[i](uv) for i in range(self.num_features)]
+    def forward(self, iuv):
+        # Expects iuv of shape (B, num_parts, 2, H, W)
+        features = [
+            self.textures[i][j](iuv[:,i])
+            for i in range(self.num_parts)
+            for j in range(self.num_features)
+        ]
         return torch.cat(features, dim=1)
 
 

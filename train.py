@@ -28,8 +28,8 @@ wandb.init(project="foolish-textures")
 
 for e in range(10):
     for sample in tqdm(dataloader):
-        image, uv, mask = sample
-        sampled_texture, pred = model(uv)
+        image, iuv = sample
+        sampled_texture, pred = model(iuv)
 
         loss_rgb = criterion(sampled_texture[:,:3], image)
         loss_reconstruct = criterion(pred, image)
