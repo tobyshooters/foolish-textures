@@ -39,7 +39,7 @@ class Dataset(torch.utils.data.Dataset):
         x1, y1, x2, y2 = (int(e) for e in obj["bbox"])
         _iuv = np.transpose(obj["iuv"], (1,2,0)) / np.array([1, 255, 255])
         _iuv = cv2.resize(_iuv, (x2-x1, y2-y1))
-        _iuv = np.around(_iuv) # preserve indexes
+        _iuv = np.around(_iuv) # preserve indexes after bilinear sampling
 
         # Reformat into matrix the size of frame, with channel for each part
         H, W, _ = frame.shape
@@ -50,15 +50,6 @@ class Dataset(torch.utils.data.Dataset):
             iuv[y1:y2, x1:x2, n][mask] = _iuv[:,:,1:][mask]
 
         iuv = np.transpose(iuv, (2,3,0,1))
-
-        # Validates that IUV channel split worked
-        # Need to make iuv have (n+1) channels so that argmax isolates background correctly
-        # parts = np.argmax(iuv[:,:,:,0][y1:y2, x1:x2], axis=2)
-        # _h, _w = parts.shape
-        # for i in range(_h):
-        #     for j in range(_w):
-        #         if parts[i,j] != _iuv[i,j,0] and _iuv[i,j,1] > 0 and _iuv[i,j,2] > 0:
-        #             print(parts[i,j], _iuv[i,j,0])
 
         # To BCHW format
         frame = self.preprocess_frame(image=frame)["image"]

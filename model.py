@@ -37,7 +37,7 @@ class LaplacianPyramid(nn.Module):
 
 class Texture(nn.Module):
 
-    def __init__(self, W, H, num_features, num_parts=24):
+    def __init__(self, W, H, num_features, num_parts):
         super(Texture, self).__init__()
         self.num_features = num_features
         self.num_parts = num_parts
@@ -145,9 +145,9 @@ class Pipeline(nn.Module):
     Currently ignores camera extrinsics.
     """
 
-    def __init__(self, W, H, num_features):
-        self.texture = Texture(W, H, num_features)
-        self.unet = UNet(num_features, 3)
+    def __init__(self, W, H, num_features, num_parts=24):
+        self.texture = Texture(W, H, num_features, num_parts)
+        self.unet = UNet(num_features * num_parts, 3)
 
     def forward(self, uv):
         x = self.texture(uv)
