@@ -6,6 +6,17 @@ import pickle as pkl
 import albumentations as albu
 from albumentations.pytorch import ToTensorV2
 
+import sys
+sys.path.append("../detectron2/projects/DensePose/")
+from densepose.data.structures import DensePoseResult
+
+def process_iuv(obj):
+    img_id, instance_id = 0, 0  # Look at the first image and the first detected instance
+    bbox_xyxy = data[img_id]['pred_boxes_XYXY'][instance_id]
+    result_encoded = data[img_id]['pred_densepose'].results[instance_id]
+    iuv_arr = DensePoseResult.decode_png_data(*result_encoded)
+    print(iuv_arr.shape)
+
 
 class Dataset(torch.utils.data.Dataset):
     """
@@ -13,7 +24,7 @@ class Dataset(torch.utils.data.Dataset):
     """
 
     def __init__(self):
-        self.fs = [f.split(".")[0] for f in os.listdir("../data/moi_et_toi_frames")]
+        self.fs = ["le_corbusier"]
 
         self.preprocess_frame = albu.Compose([
             albu.Normalize(), 
@@ -27,13 +38,17 @@ class Dataset(torch.utils.data.Dataset):
         f = self.fs[idx]
 
         # Read in frame
-        frame_path = os.path.join("../data/moi_et_toi_frames", f + ".jpg")
+        frame_path = os.path.join("./data/", f + ".jpg")
         frame = cv2.imread(frame_path)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        print(frame.shape)
 
         # Get IUV and bbox
-        iuv_path = os.path.join("../data/moi_et_toi_iuvs", f + ".pkl")
+        iuv_path = os.path.join("./data/", f + ".pkl")
         obj = pkl.load(open(iuv_path, "rb"))
+
+        process_iuv(obj)
+        return
 
         # IUV should be between [0, 1], with parts as first index and size of frame
         x1, y1, x2, y2 = (int(e) for e in obj["bbox"])
@@ -55,3 +70,8 @@ class Dataset(torch.utils.data.Dataset):
         frame = self.preprocess_frame(image=frame)["image"]
 
         return frame, iuv
+
+
+if __name__ == "__main__":
+    dset = Dataset()
+    dset[0]

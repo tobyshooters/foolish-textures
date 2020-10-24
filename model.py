@@ -8,21 +8,22 @@ import torch.nn.functional as F
 # Neural Texture
 ##############################################################################
 
-class LaplacianPyramid(nn.Module):
+class Texture(nn.Module):
     """
     Laplacian pyramid of textures, use forward to sample features
     Represent a single feature in a Neural Texture
     """
 
-    def __init__(self, W, H):
+    def __init__(self, N, H, W):
         super(LaplacianPyramid, self).__init__()
-        self.layer1 = nn.Parameter(torch.FloatTensor(1, 1, W, H))
-        self.layer2 = nn.Parameter(torch.FloatTensor(1, 1, W // 2, H // 2))
-        self.layer3 = nn.Parameter(torch.FloatTensor(1, 1, W // 4, H // 4))
-        self.layer4 = nn.Parameter(torch.FloatTensor(1, 1, W // 8, H // 8))
+        self.layer1 = nn.Parameter(torch.FloatTensor(1, N, H,    W   ))
+        self.layer2 = nn.Parameter(torch.FloatTensor(1, N, H//2, W//2))
+        self.layer3 = nn.Parameter(torch.FloatTensor(1, N, H//4, W//4))
+        self.layer4 = nn.Parameter(torch.FloatTensor(1, N, H//8, W//8))
 
     def forward(self, uv):
-        # Expects uv in [0, 1]
+        # Expects uv in [-1, 1]
+        # Padding mode is zero, so numbers outside of (-1, 1) are set to 0
         B, _, H, W = uv.shape # (B, 2, H, W)
 
         # Repeat to do batches in parallel
@@ -35,18 +36,15 @@ class LaplacianPyramid(nn.Module):
         return y
 
 
-class Texture(nn.Module):
+class Atlas(nn.Module):
 
-    def __init__(self, W, H, num_features, num_parts):
+    def __init__(self, H, W, num_features, num_parts):
         super(Texture, self).__init__()
         self.num_features = num_features
         self.num_parts = num_parts
 
         self.textures = nn.ModuleList([
-            nn.ModuleList([
-                LaplacianPyramid(W, H) 
-                for _ in range(num_features)
-            ])
+            Texture(self.num_features, H, W) 
             for _ in range(num_parts)
         ])
 
@@ -57,18 +55,16 @@ class Texture(nn.Module):
         self.layer4 = nn.ParameterList()
 
         for i in range(num_parts):
-            for j in range(num_features):
-                self.layer1.append(self.textures[i][j].layer1)
-                self.layer2.append(self.textures[i][j].layer2)
-                self.layer3.append(self.textures[i][j].layer3)
-                self.layer4.append(self.textures[i][j].layer4)
+            self.layer1.append(self.textures[i].layer1)
+            self.layer2.append(self.textures[i].layer2)
+            self.layer3.append(self.textures[i].layer3)
+            self.layer4.append(self.textures[i].layer4)
 
     def forward(self, iuv):
         # Expects iuv of shape (B, num_parts, 2, H, W)
         features = [
-            self.textures[i][j](iuv[:,i])
+            self.textures[i](iuv[:,i])
             for i in range(self.num_parts)
-            for j in range(self.num_features)
         ]
         return torch.cat(features, dim=1)
 
@@ -145,11 +141,11 @@ class Pipeline(nn.Module):
     Currently ignores camera extrinsics.
     """
 
-    def __init__(self, W, H, num_features, num_parts=24):
-        self.texture = Texture(W, H, num_features, num_parts)
+    def __init__(self, H, W, num_features, num_parts=24):
+        self.atlas = Atlas(H, W, num_features, num_parts)
         self.unet = UNet(num_features * num_parts, 3)
 
     def forward(self, uv):
-        x = self.texture(uv)
+        x = self.atlas(uv)
         y = self.unet(x)
         return x, y

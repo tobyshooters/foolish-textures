@@ -10,17 +10,17 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 dataset = Dataset("./data")
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
-model = Pipeline(W=1024, H=1024, num_features=16)
+model = Pipeline(H=1024, W=1024, num_features=16, num_parts=24)
 model.to(device)
 model.train()
 
 learning_rate = 1e-3
 optimizer = torch.optim.Adam([
     # Apply increasing amount of regularization to finer layers
-    {"params": model.texture.layer1, 'weight_decay': 1e-2, 'lr': learning_rate},
-    {"params": model.texture.layer2, 'weight_decay': 1e-3, 'lr': learning_rate},
-    {"params": model.texture.layer3, 'weight_decay': 1e-4, 'lr': learning_rate},
-    {"params": model.texture.layer4, 'weight_decay': 0,    'lr': learning_rate},
+    {"params": model.atlas.layer1, 'weight_decay': 1e-2, 'lr': learning_rate},
+    {"params": model.atlas.layer2, 'weight_decay': 1e-3, 'lr': learning_rate},
+    {"params": model.atlas.layer3, 'weight_decay': 1e-4, 'lr': learning_rate},
+    {"params": model.atlas.layer4, 'weight_decay': 0,    'lr': learning_rate},
 ])
 criterion = nn.L1Loss()
 
