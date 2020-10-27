@@ -8,14 +8,6 @@ from albumentations.pytorch import ToTensorV2
 
 import sys
 sys.path.append("../detectron2/projects/DensePose/")
-from densepose.data.structures import DensePoseResult
-
-def process_iuv(obj):
-    img_id, instance_id = 0, 0  # Look at the first image and the first detected instance
-    bbox_xyxy = data[img_id]['pred_boxes_XYXY'][instance_id]
-    result_encoded = data[img_id]['pred_densepose'].results[instance_id]
-    iuv_arr = DensePoseResult.decode_png_data(*result_encoded)
-    print(iuv_arr.shape)
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -41,33 +33,26 @@ class Dataset(torch.utils.data.Dataset):
         frame_path = os.path.join("./data/", f + ".jpg")
         frame = cv2.imread(frame_path)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        print(frame.shape)
+        frame = albu.Normalize(frame)
+        frame = albu.ToTensorV2(frame)
 
         # Get IUV and bbox
-        iuv_path = os.path.join("./data/", f + ".pkl")
-        obj = pkl.load(open(iuv_path, "rb"))
+        data = pkl.load(open(os.path.join("./data/", f + ".pkl"), "rb"))
 
-        process_iuv(obj)
-        return
+        result = data[0]['pred_densepose'][0]
+        iuv_bbox = torch.cat([result.labels.unsqueeze(0), result.uv])
 
-        # IUV should be between [0, 1], with parts as first index and size of frame
-        x1, y1, x2, y2 = (int(e) for e in obj["bbox"])
-        _iuv = np.transpose(obj["iuv"], (1,2,0)) / np.array([1, 255, 255])
-        _iuv = cv2.resize(_iuv, (x2-x1, y2-y1))
-        _iuv = np.around(_iuv) # preserve indexes after bilinear sampling
+        bbox = data[0]['pred_boxes_XYXY'][0]
+        x0, y0, x1, y1 = [x.item() for x in bbox]
+        x, dx = int(x0), int(x1 - x0)
+        y, dy = int(y0), int(y1 - y0)
 
-        # Reformat into matrix the size of frame, with channel for each part
-        H, W, _ = frame.shape
-        iuv = np.zeros((H, W, 25, 2))
+        # Fit IUV to frame shape
+        _, H, W = frame.shape
+        iuv = torch.zeros((3, H, W))
+        iuv[:, y:y+dy, x:x+dx] = iuv_bbox
 
-        for n in range(24):
-            mask = (_iuv[:,:,0] == n+1)
-            iuv[y1:y2, x1:x2, n][mask] = _iuv[:,:,1:][mask]
-
-        iuv = np.transpose(iuv, (2,3,0,1))
-
-        # To BCHW format
-        frame = self.preprocess_frame(image=frame)["image"]
+        print(frame.shape, iuv.shape)
 
         return frame, iuv
 
