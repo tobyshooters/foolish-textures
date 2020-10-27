@@ -3,7 +3,9 @@ import numpy as np
 import torch
 import cv2
 import pickle as pkl
+
 import albumentations as albu
+from albumentations import Normalize
 from albumentations.pytorch import ToTensorV2
 
 import sys
@@ -17,11 +19,7 @@ class Dataset(torch.utils.data.Dataset):
 
     def __init__(self):
         self.fs = ["le_corbusier"]
-
-        self.preprocess_frame = albu.Compose([
-            albu.Normalize(), 
-            ToTensorV2(),
-        ])
+        self.preprocess = albu.Compose([Normalize(mean=0, std=1), ToTensorV2()])
 
     def __len__(self):
         return len(self.fs)
@@ -33,8 +31,7 @@ class Dataset(torch.utils.data.Dataset):
         frame_path = os.path.join("./data/", f + ".jpg")
         frame = cv2.imread(frame_path)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame = albu.Normalize(frame)
-        frame = albu.ToTensorV2(frame)
+        frame = self.preprocess(image=frame)["image"]
 
         # Get IUV and bbox
         data = pkl.load(open(os.path.join("./data/", f + ".pkl"), "rb"))
@@ -59,4 +56,11 @@ class Dataset(torch.utils.data.Dataset):
 
 if __name__ == "__main__":
     dset = Dataset()
-    dset[0]
+    loader = torch.utils.data.DataLoader(dset, shuffle=True, batch_size=1)
+
+    for t, (frame, iuv) in enumerate(loader):
+        frame = frame[0].numpy().transpose(1,2,0)
+        iuv = iuv[0].numpy().transpose(1,2,0)
+        iuv[1:] *= 255
+        cv2.imwrite(f"{t}_img.jpg", (255 * frame).astype(np.uint8))
+        cv2.imwrite(f"{t}_iuv.jpg", iuv)
