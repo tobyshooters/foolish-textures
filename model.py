@@ -11,15 +11,14 @@ import torch.nn.functional as F
 class Texture(nn.Module):
     """
     Laplacian pyramid of textures, use forward to sample features
-    Represent a single feature in a Neural Texture
     """
 
     def __init__(self, N, H, W):
-        super(LaplacianPyramid, self).__init__()
-        self.layer1 = nn.Parameter(torch.FloatTensor(1, N, H,    W   ))
-        self.layer2 = nn.Parameter(torch.FloatTensor(1, N, H//2, W//2))
-        self.layer3 = nn.Parameter(torch.FloatTensor(1, N, H//4, W//4))
-        self.layer4 = nn.Parameter(torch.FloatTensor(1, N, H//8, W//8))
+        super(Texture, self).__init__()
+        self.layer1 = nn.Parameter(torch.zeros((1, N, H,    W   )))
+        self.layer2 = nn.Parameter(torch.zeros((1, N, H//2, W//2)))
+        self.layer3 = nn.Parameter(torch.zeros((1, N, H//4, W//4)))
+        self.layer4 = nn.Parameter(torch.zeros((1, N, H//8, W//8)))
 
     def forward(self, uv):
         # Expects uv in [-1, 1]
@@ -27,10 +26,10 @@ class Texture(nn.Module):
         B, _, H, W = uv.shape # (B, 2, H, W)
 
         # Repeat to do batches in parallel
-        y1 = F.grid_sample(self.layer1.repeat(B, 1, 1, 1), uv)
-        y2 = F.grid_sample(self.layer2.repeat(B, 1, 1, 1), uv)
-        y3 = F.grid_sample(self.layer3.repeat(B, 1, 1, 1), uv)
-        y4 = F.grid_sample(self.layer4.repeat(B, 1, 1, 1), uv)
+        y1 = F.grid_sample(self.layer1.repeat(B, 1, 1, 1), uv, align_corners=True)
+        y2 = F.grid_sample(self.layer2.repeat(B, 1, 1, 1), uv, align_corners=True)
+        y3 = F.grid_sample(self.layer3.repeat(B, 1, 1, 1), uv, align_corners=True)
+        y4 = F.grid_sample(self.layer4.repeat(B, 1, 1, 1), uv, align_corners=True)
 
         y = y1 + y2 + y3 + y4
         return y
@@ -39,7 +38,7 @@ class Texture(nn.Module):
 class Atlas(nn.Module):
 
     def __init__(self, H, W, num_features, num_parts):
-        super(Texture, self).__init__()
+        super(Atlas, self).__init__()
         self.num_features = num_features
         self.num_parts = num_parts
 
@@ -61,12 +60,15 @@ class Atlas(nn.Module):
             self.layer4.append(self.textures[i].layer4)
 
     def forward(self, iuv):
-        # Expects iuv of shape (B, num_parts, 2, H, W)
-        features = [
-            self.textures[i](iuv[:,i])
-            for i in range(self.num_parts)
-        ]
-        return torch.cat(features, dim=1)
+        # Expects iuv of shape (B, num_parts, H, W, _)
+        B, _, H, W, _ = iuv.shape
+        features = torch.zeros((B, self.num_features, H, W)).to("cuda")
+
+        for i in range(self.num_parts):
+            samples = self.textures[i](iuv[:, i])
+            features += samples
+
+        return features
 
 
 ##############################################################################
@@ -76,8 +78,8 @@ class Atlas(nn.Module):
 class Down(nn.Module):
     def __init__(self, in_ch, out_ch):
         super(Down, self).__init__()
-        self.conv = nn.Conv2d(in_ch, out_ch, 4, stride=2, padding=1),
-        self.norm = nn.InstanceNorm2d(out_ch),
+        self.conv = nn.Conv2d(in_ch, out_ch, 4, stride=2, padding=1)
+        self.norm = nn.InstanceNorm2d(out_ch)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
 
     def forward(self, x):
@@ -88,8 +90,8 @@ class Up(nn.Module):
     def __init__(self, in_ch, out_ch, output_pad=0, concat=True, final=False):
         super(Up, self).__init__()
         self.concat = concat
-        self.conv = nn.ConvTranspose2d(in_ch, out_ch, 4, stride=2, padding=1, output_padding=output_pad),
-        self.norm = nn.InstanceNorm2d(out_ch),
+        self.conv = nn.ConvTranspose2d(in_ch, out_ch, 4, stride=2, padding=1, output_padding=output_pad)
+        self.norm = nn.InstanceNorm2d(out_ch)
         self.nlin = nn.Tanh() if final else nn.LeakyReLU(0.2, inplace=True)
 
     def forward(self, x1, x2):
@@ -142,10 +144,11 @@ class Pipeline(nn.Module):
     """
 
     def __init__(self, H, W, num_features, num_parts=24):
+        super(Pipeline, self).__init__()
         self.atlas = Atlas(H, W, num_features, num_parts)
-        self.unet = UNet(num_features * num_parts, 3)
+        self.unet = UNet(num_features, 3)
 
-    def forward(self, uv):
-        x = self.atlas(uv)
+    def forward(self, iuv):
+        x = self.atlas(iuv)
         y = self.unet(x)
         return x, y
